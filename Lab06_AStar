@@ -1,0 +1,122 @@
+
+"""Student A* planner for the Nav2 global costmap."""
+
+from __future__ import annotations
+
+import heapq
+from itertools import count
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nav2_msgs.msg import Costmap
+
+
+def a_star_impl(
+    *,
+    nav2_cost_map: Costmap,
+    start_point: tuple[int, int],
+    goal_point: tuple[int, int],
+) -> list[tuple[int, int]]:
+
+    width = nav2_cost_map.metadata.size_x
+    height = nav2_cost_map.metadata.size_y
+    costs = nav2_cost_map.data
+
+    if start_point == goal_point:
+        return [start_point]
+
+    def heuristic(cell):
+        return (
+            abs(cell[0] - goal_point[0])
+            + abs(cell[1] - goal_point[1])
+        )
+
+    # Four-connected movement only
+    directions = (
+        (1, 0),
+        (-1, 0),
+        (0, 1),
+        (0, -1),
+    )
+
+    # Best lexicographic score:
+    # (number of steps, accumulated cell cost)
+    best = {start_point: (0, 0)}
+
+    # Used to reconstruct the final path
+    predecessor = {}
+
+    # Priority:
+    # (g_steps + h_steps, accumulated_cost, sequence, cell)
+    frontier = []
+    sequence = count()
+
+    heapq.heappush(
+        frontier,
+        (heuristic(start_point), 0,
+         next(sequence), start_point, 0)
+    )
+
+    while frontier:
+
+        f_steps, total_cost, _, current, steps = (
+            heapq.heappop(frontier)
+        )
+
+        # Ignore outdated queue entries
+        if best.get(current) != (steps, total_cost):
+            continue
+
+        if current == goal_point:
+            path = [current]
+
+            while current != start_point:
+                current = predecessor[current]
+                path.append(current)
+
+            path.reverse()
+            return path
+
+        x, y = current
+
+        for dx, dy in directions:
+            nx = x + dx
+            ny = y + dy
+
+            # Check map boundaries
+            if not (0 <= nx < width and 0 <= ny < height):
+                continue
+
+            cell_cost = costs[ny * width + nx]
+
+            # 253, 254, 255 are not traversable
+            if cell_cost >= 253:
+                continue
+
+            neighbour = (nx, ny)
+
+            new_steps = steps + 1
+            new_cost = total_cost + cell_cost
+            new_score = (new_steps, new_cost)
+
+            old_score = best.get(neighbour)
+
+            # Lexicographic comparison:
+            # fewer steps first, lower cost second
+            if old_score is None or new_score < old_score:
+
+                best[neighbour] = new_score
+                predecessor[neighbour] = current
+
+                heapq.heappush(
+                    frontier,
+                    (
+                        new_steps + heuristic(neighbour),
+                        new_cost,
+                        next(sequence),
+                        neighbour,
+                        new_steps,
+                    )
+                )
+
+    return []
